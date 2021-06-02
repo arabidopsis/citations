@@ -67,7 +67,7 @@ def citation_df(doi):
 
 
 class Db:
-    def __init__(self, engine, publications, citations_table):
+    def __init__(self, engine, publications, citations_table, meta_table):
         import pandas
         from sqlalchemy import bindparam, select
 
@@ -76,6 +76,7 @@ class Db:
         self.engine = engine
         self.publications = publications
         self.citations = citations_table
+        self.meta_table = meta_table
         self.select = select
         self.update = (
             publications.update()  # pylint: disable=no-value-for-parameter
@@ -124,7 +125,17 @@ class Db:
 
 
 def initdb():
-    from sqlalchemy import Column, Integer, MetaData, String, Table, create_engine
+    from sqlalchemy import (
+        Column,
+        Integer,
+        Boolean,
+        MetaData,
+        String,
+        Table,
+        create_engine,
+        text,
+        JSON,
+    )
 
     meta = MetaData()
     Publications = Table(
@@ -145,12 +156,75 @@ def initdb():
         Column("doi", String(64), index=True),
         Column("citedby", String(64)),
     )
+    Meta = Table(
+        "metadata",
+        meta,
+        Column("id", Integer, primary_key=True),
+        Column("doi", String(64), index=True, nullable=False),
+        Column("pubmed", String(12)),
+        Column("source", String(12), nullable=False),
+        Column("status", Integer, nullable=False, server_default=text("0")),
+        Column("has_affiliation", Boolean),
+        Column("data", JSON),
+    )
 
     engine = create_engine("sqlite:///./citations.db")
     Publications.create(bind=engine, checkfirst=True)
     Citations.create(bind=engine, checkfirst=True)
+    Meta.create(bind=engine, checkfirst=True)
 
-    return Db(engine, Publications, Citations)
+    return Db(engine, Publications, Citations, Meta)
+
+
+def dometadata(db: Db, email: str, sleep=1.0):
+    from sqlalchemy import select, null
+    import requests
+    from tqdm import tqdm
+    from .ncbi import ncbi_fetchdoi
+
+    m = db.meta_table
+    c = db.citations
+    q = select([c.c.doi]).outerjoin(m, m.c.doi == c.c.doi).where(m.c.doi == null())
+
+    with db.engine.connect() as con:
+        todo = {r.doi for r in con.execute(q)}
+    click.secho(f"todo {len(todo)}", fg="blue")
+    ntry = 4
+    session = requests.Session()
+
+    def insert(d):
+        with db.engine.connect() as conn:
+            conn.execute(m.insert(), d)
+
+    with tqdm(todo) as pbar:
+        for doi in pbar:
+            try:
+                data = list(ncbi_fetchdoi(doi, email, sleep, session=session))
+                if not data:
+                    d = dict(doi=doi, status=-1, source="ncbi")
+                    insert(d)
+                    continue
+                for d in data:
+                    has_aff = any(bool(a.get("affiliation")) for a in d["authors"])
+                    d = dict(
+                        doi=doi,
+                        pubmed=d["pubmed"],
+                        status=1,
+                        source="ncbi",
+                        has_affiliation=has_aff,
+                        data=d,
+                    )
+                    insert(d)
+
+                    if sleep:
+                        time.sleep(sleep)
+            except Exception as e:  # pylint: disable=broad-except
+                pbar.write(click.style(f"failed for {doi}: {e}", fg="red"))
+                d = dict(doi=doi, status=-2, source="ncbi")
+                insert(d)
+                ntry -= 1
+                if ntry <= 0:
+                    raise
 
 
 def docitations(db: Db, sleep=1.0):
@@ -214,9 +288,9 @@ def fixpubs(pubs):
     return pubs
 
 
-
 @cli.command(name="fixdoi")
 def fixdoi_():
+    """Fix any incorrect dois."""
     import pandas as pd
 
     db = initdb()
@@ -256,3 +330,13 @@ def tocsv(filename):
     db = initdb()
     df = pd.read_sql_table("citations", con=db.engine)
     df.to_csv(filename, index=False)  # pylint: disable=no-member
+
+
+@cli.command()
+@click.option("--sleep", default=1.0)
+@click.argument("email")
+def ncbi_metadata(email, sleep):
+    """Get metadata for citations."""
+
+    db = initdb()
+    dometadata(db, email, sleep)
