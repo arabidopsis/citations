@@ -180,7 +180,7 @@ def initdb():
     return Db(engine, Publications, Citations, Meta)
 
 
-def dometadata(db: Db, email: str, sleep=1.0):
+def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
     import requests
     from sqlalchemy import null, select
     from tqdm import tqdm
@@ -190,12 +190,12 @@ def dometadata(db: Db, email: str, sleep=1.0):
     m = db.meta_table
     c = db.citations
     j = c.outerjoin(m, m.c.doi == c.c.citedby)
-    q = select([c.c.citedby]).select_from(j).where(m.c.doi == null())
+    q = select([c.c.citedby.distinct()]).select_from(j).where(m.c.doi == null())
 
     with db.engine.connect() as con:
         todo = {r.citedby for r in con.execute(q)}
     click.secho(f"todo {len(todo)}", fg="blue")
-    ntry = 4
+
     session = requests.Session()
 
     def insert(d):
@@ -346,7 +346,9 @@ def tocsv(filename):
     show_default=True,
 )
 @click.option(
-    "--no-email", is_flag=True, help="don't send email",
+    "--no-email",
+    is_flag=True,
+    help="don't send email",
 )
 @click.argument("email")
 def ncbi_metadata(email, sleep, no_email):
@@ -362,12 +364,14 @@ def ncbi_metadata(email, sleep, no_email):
     try:
         dometadata(db, email, sleep)
         if not no_email:
-            sendmail(f"metadata done in {datetime.now() - start}", email)
+            sendmail(f"ncbi-metadata done in {datetime.now() - start}", email)
     except KeyboardInterrupt:
         pass
     except Exception as e:
         if not no_email:
-            sendmail(f"metadata <b>failed!</b><br/><pre>{escape(str(e))}</pre>", email)
+            sendmail(
+                f"ncbi-metadata <b>failed!</b><br/><pre>{escape(str(e))}</pre>", email
+            )
         raise
 
 
@@ -379,13 +383,14 @@ def test_email(email, message):
     from .mailer import sendmail
 
     sendmail(message, email)
+    click.secho("email sent!", fg="green")
 
 
 @cli.command()
 @click.argument("table")
 @click.argument("filename", type=click.Path(dir_okay=False))
 def dump(table, filename):
-    """Dump table to FILENAME as CSV."""
+    """Dump citation table to FILENAME as CSV."""
     import pandas as pd
 
     db = initdb()

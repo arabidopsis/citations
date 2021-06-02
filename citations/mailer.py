@@ -5,8 +5,6 @@ from email.mime.text import MIMEText
 
 from . import config
 
-# from email.mime.image import MIMEImage
-# from email.mime.multipart import MIMEMultipart
 
 
 # pylint: disable=too-many-arguments
