@@ -333,10 +333,41 @@ def tocsv(filename):
 
 
 @cli.command()
-@click.option("--sleep", default=1.0)
+@click.option(
+    "--sleep",
+    default=1.0,
+    help="time to sleep in seconds between requests",
+    show_default=True,
+)
+@click.option(
+    "--no-email",
+    is_flag=True,
+    help="don't send email",
+)
 @click.argument("email")
-def ncbi_metadata(email, sleep):
+def ncbi_metadata(email, sleep, no_email):
     """Get metadata for citations."""
+    from .mailer import sendmail
+    from html import escape
+    from datetime import datetime
 
     db = initdb()
-    dometadata(db, email, sleep)
+    start = datetime.now()
+    try:
+        dometadata(db, email, sleep)
+        if not no_email:
+            sendmail(f"metadata done in {datetime.now() - start}", email)
+    except Exception as e:
+        if not no_email:
+            sendmail(f"metadata <b>failed!</b><br/><pre>{escape(str(e))}</pre>", email)
+        raise
+
+
+@cli.command()
+@click.argument("email")
+@click.argument("message")
+def test_email(email, message):
+    """Test email."""
+    from .mailer import sendmail
+
+    sendmail(message, email)
