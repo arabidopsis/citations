@@ -29,6 +29,3 @@ def sendmail(
     with smtplib.SMTP() as s:
         s.connect(mailhost)
         s.sendmail(me, [you], msg.as_string())
-
-
-

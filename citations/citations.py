@@ -93,6 +93,10 @@ class Db:
         with self.engine.connect() as conn:
             return conn.execute(q2).fetchone()[0]
 
+    def execute(self, query):
+        with self.engine.connect() as conn:
+            return conn.execute(query).fetchall()
+
     def update_citation_count(self, doi, ncitations):
         with self.engine.connect() as con:
             proxy = con.execute(self.update, b_doi=doi, b_ncitations=ncitations)
@@ -126,15 +130,15 @@ class Db:
 
 def initdb():
     from sqlalchemy import (
+        JSON,
+        Boolean,
         Column,
         Integer,
-        Boolean,
         MetaData,
         String,
         Table,
         create_engine,
         text,
-        JSON,
     )
 
     meta = MetaData()
@@ -177,17 +181,19 @@ def initdb():
 
 
 def dometadata(db: Db, email: str, sleep=1.0):
-    from sqlalchemy import select, null
     import requests
+    from sqlalchemy import null, select
     from tqdm import tqdm
+
     from .ncbi import ncbi_fetchdoi
 
     m = db.meta_table
     c = db.citations
-    q = select([c.c.doi]).outerjoin(m, m.c.doi == c.c.doi).where(m.c.doi == null())
+    j = c.outerjoin(m, m.c.doi == c.c.citedby)
+    q = select([c.c.citedby]).select_from(j).where(m.c.doi == null())
 
     with db.engine.connect() as con:
-        todo = {r.doi for r in con.execute(q)}
+        todo = {r.citedby for r in con.execute(q)}
     click.secho(f"todo {len(todo)}", fg="blue")
     ntry = 4
     session = requests.Session()
@@ -340,23 +346,25 @@ def tocsv(filename):
     show_default=True,
 )
 @click.option(
-    "--no-email",
-    is_flag=True,
-    help="don't send email",
+    "--no-email", is_flag=True, help="don't send email",
 )
 @click.argument("email")
 def ncbi_metadata(email, sleep, no_email):
     """Get metadata for citations."""
-    from .mailer import sendmail
-    from html import escape
     from datetime import datetime
+    from html import escape
+
+    from .mailer import sendmail
 
     db = initdb()
+    click.secho(f"citations {db.ncitations()}", fg="green")
     start = datetime.now()
     try:
         dometadata(db, email, sleep)
         if not no_email:
             sendmail(f"metadata done in {datetime.now() - start}", email)
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
         if not no_email:
             sendmail(f"metadata <b>failed!</b><br/><pre>{escape(str(e))}</pre>", email)
@@ -371,3 +379,15 @@ def test_email(email, message):
     from .mailer import sendmail
 
     sendmail(message, email)
+
+
+@cli.command()
+@click.argument("table")
+@click.argument("filename", type=click.Path(dir_okay=False))
+def dump(table, filename):
+    """Dump table to FILENAME as CSV."""
+    import pandas as pd
+
+    db = initdb()
+    df = pd.read_sql_table(table, con=db.engine)
+    df.to_csv(filename, index=False)  # pylint: disable=no-member

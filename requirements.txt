@@ -1,5 +1,6 @@
 click>=7.1.2
 click_didyoumean>=0.0.3
+lxml>=4.3.3
 pandas>=1.0.3
 pymongo>=3.11.2
 requests>=2.25.0

@@ -1,5 +1,6 @@
-from io import BytesIO
 import time
+from io import BytesIO
+
 import requests
 
 ESEARCH2 = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
