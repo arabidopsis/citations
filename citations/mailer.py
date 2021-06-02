@@ -2,16 +2,15 @@
 
 import smtplib
 from email.mime.text import MIMEText
+from typing import Union, List, Optional
 
 from . import config
 
 
-
-# pylint: disable=too-many-arguments
 def sendmail(
-    html,
-    you,
-    replyto=None,
+    html:str,
+    you:str,
+    replyto:Optional[Union[str,List[str]]]=None,
     me=config.EMAIL,
     mailhost=config.MAIL_SERVER,
     subject="citations monitor",

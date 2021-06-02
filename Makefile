@@ -4,5 +4,8 @@ requirements:
 pre-commit:
 	pre-commit run --all-files
 
+pylint:
+	pylint citations/
+
 install:
 	pip install --editable .

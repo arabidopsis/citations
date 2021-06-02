@@ -1,5 +1,7 @@
 import re
 import time
+from typing import Iterable, Dict, Any
+import pandas as pd
 
 import click
 
@@ -8,7 +10,7 @@ from .cli import cli
 DOI = re.compile(r"coci => ([^\s]+)$")
 
 
-def fetch_opennet(doi):
+def fetch_opennet(doi: str) -> Dict[str, Any]:
     import requests
 
     r = requests.get(f"https://w3id.org/oc/index/api/v1/citations/{doi}")
@@ -16,7 +18,7 @@ def fetch_opennet(doi):
     return r.json()
 
 
-def fetch_crossref(doi):
+def fetch_crossref(doi: str) -> Dict[str, Any]:
     import requests
 
     r = requests.get(f"https://api.crossref.org/works/{doi}")
@@ -26,8 +28,7 @@ def fetch_crossref(doi):
     return m["message"]
 
 
-def fetch_publications(mongo=None):
-    import pandas as pd
+def fetch_publications(mongo: str = None) -> pd.DataFrame:
     from pymongo import MongoClient
 
     if mongo is None:
@@ -47,7 +48,7 @@ def fetch_publications(mongo=None):
     return pubs
 
 
-def citations(doi):
+def citations(doi: str) -> Iterable[str]:
     r = fetch_opennet(doi)
     for d in r:
         m = DOI.match(d["cited"])
@@ -58,8 +59,7 @@ def citations(doi):
             yield m.group(1)
 
 
-def citation_df(doi):
-    import pandas as pd
+def citation_df(doi: str) -> pd.DataFrame:
 
     df = pd.DataFrame({"citedby": list(set(citations(doi)))})
     df["doi"] = doi
@@ -68,10 +68,9 @@ def citation_df(doi):
 
 class Db:
     def __init__(self, engine, publications, citations_table, meta_table):
-        import pandas
         from sqlalchemy import bindparam, select
 
-        self.pd = pandas
+        self.pd = pd
 
         self.engine = engine
         self.publications = publications
@@ -84,7 +83,7 @@ class Db:
             .where(publications.c.doi == bindparam("b_doi"))
         )
 
-    def count(self, t, q=None):
+    def count(self, t, q=None) -> int:
         from sqlalchemy import func
 
         q2 = self.select([func.count()]).select_from(t)
@@ -102,33 +101,33 @@ class Db:
             proxy = con.execute(self.update, b_doi=doi, b_ncitations=ncitations)
             assert proxy.rowcount == 1, (doi, proxy.rowcount)
 
-    def update_citations(self, df):
+    def update_citations(self, df: pd.DataFrame):
         df.to_sql("citations", con=self.engine, if_exists="append", index=False)
 
-    def fixdoi(self, olddoi, newdoi):
+    def fixdoi(self, olddoi: str, newdoi: str):
         p = self.publications
         u = p.update().values({p.c.doi: newdoi}).where(p.c.doi == olddoi)
         with self.engine.connect() as con:
             con.execute(u)
 
-    def todo(self):
+    def todo(self) -> pd.DataFrame:
 
         return self.pd.read_sql_query(
             self.select([self.publications]).where(self.publications.c.ncitations < 0),
             con=self.engine,
         )
 
-    def npubs(self):
+    def npubs(self) -> int:
         return self.count(self.publications)
 
-    def ndone(self):
+    def ndone(self) -> int:
         return self.count(self.publications, q=self.publications.c.ncitations >= 0)
 
-    def ncitations(self):
+    def ncitations(self) -> int:
         return self.count(self.citations)
 
 
-def initdb():
+def initdb() -> Db:
     from sqlalchemy import (
         JSON,
         Boolean,
@@ -266,7 +265,7 @@ def docitations(db: Db, sleep=1.0):
                 pbar.write(click.style(f"{row.doi}: exception {e}", fg="red"))
 
 
-def fixdoi(doi):
+def fixdoi(doi: str) -> str:
     doi = doi.replace("%2F", "/")
     for prefix in [
         "https://dx.doi.org/",
@@ -280,7 +279,7 @@ def fixdoi(doi):
     return doi
 
 
-def fixpubs(pubs):
+def fixpubs(pubs: pd.DataFrame) -> pd.DataFrame:
 
     missing = pubs.doi.isna()
     smissing = missing.sum()
@@ -297,7 +296,6 @@ def fixpubs(pubs):
 @cli.command(name="fixdoi")
 def fixdoi_():
     """Fix any incorrect dois."""
-    import pandas as pd
 
     db = initdb()
     df = pd.read_sql_table("publications", con=db.engine)
@@ -331,7 +329,6 @@ def scan(sleep, mongo):
 @click.argument("filename", type=click.Path(dir_okay=False))
 def tocsv(filename):
     """Dump citations to FILENAME as CSV."""
-    import pandas as pd
 
     db = initdb()
     df = pd.read_sql_table("citations", con=db.engine)
@@ -346,12 +343,18 @@ def tocsv(filename):
     show_default=True,
 )
 @click.option(
+    "--ntry",
+    default=4,
+    help="number of retries before failing",
+    show_default=True,
+)
+@click.option(
     "--no-email",
     is_flag=True,
     help="don't send email",
 )
 @click.argument("email")
-def ncbi_metadata(email, sleep, no_email):
+def ncbi_metadata(email: str, sleep: float, no_email: bool, ntry: int):
     """Get metadata for citations."""
     from datetime import datetime
     from html import escape
@@ -362,7 +365,7 @@ def ncbi_metadata(email, sleep, no_email):
     click.secho(f"citations {db.ncitations()}", fg="green")
     start = datetime.now()
     try:
-        dometadata(db, email, sleep)
+        dometadata(db, email, sleep, ntry=ntry)
         if not no_email:
             sendmail(f"ncbi-metadata done in {datetime.now() - start}", email)
     except KeyboardInterrupt:
@@ -391,7 +394,6 @@ def test_email(email, message):
 @click.argument("filename", type=click.Path(dir_okay=False))
 def dump(table, filename):
     """Dump citation table to FILENAME as CSV."""
-    import pandas as pd
 
     db = initdb()
     df = pd.read_sql_table(table, con=db.engine)
