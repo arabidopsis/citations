@@ -214,12 +214,8 @@ def fixpubs(pubs):
     return pubs
 
 
-@cli.group(help=click.style("citation commands", fg="magenta"))
-def cite():
-    pass
 
-
-@cite.command(name="fixdoi")
+@cli.command(name="fixdoi")
 def fixdoi_():
     import pandas as pd
 
@@ -233,7 +229,7 @@ def fixdoi_():
     )
 
 
-@cite.command()
+@cli.command()
 @click.option("--sleep", default=1.0)
 @click.option("--mongo")
 def scan(sleep, mongo):
@@ -251,7 +247,7 @@ def scan(sleep, mongo):
     docitations(db, sleep)
 
 
-@cite.command()
+@cli.command()
 @click.argument("filename", type=click.Path(dir_okay=False))
 def tocsv(filename):
     """Dump citations to FILENAME as CSV."""
