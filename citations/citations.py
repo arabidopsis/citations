@@ -1,9 +1,9 @@
 import re
 import time
-from typing import Iterable, Dict, Any
-import pandas as pd
+from typing import Any, Dict, Iterable
 
 import click
+import pandas as pd
 
 from .cli import cli
 
@@ -92,9 +92,11 @@ class Db:
         with self.engine.connect() as conn:
             return conn.execute(q2).fetchone()[0]
 
-    def execute(self, query):
+    def execute(self, query, fetch=True):
         with self.engine.connect() as conn:
-            return conn.execute(query).fetchall()
+
+            r = conn.execute(query)
+            return r.fetchall() if fetch else r
 
     def update_citation_count(self, doi, ncitations):
         with self.engine.connect() as con:
@@ -210,13 +212,15 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
                     insert(d)
                     continue
                 for d in data:
-                    has_aff = any(bool(a.get("affiliation")) for a in d["authors"])
+                    has_affiliation = any(
+                        bool(a.get("affiliation")) for a in d["authors"]
+                    )
                     d = dict(
                         doi=doi,
                         pubmed=d["pubmed"],
                         status=1,
                         source="ncbi",
-                        has_affiliation=has_aff,
+                        has_affiliation=has_affiliation,
                         data=d,
                     )
                     insert(d)
@@ -343,19 +347,20 @@ def tocsv(filename):
     show_default=True,
 )
 @click.option(
-    "--ntry",
-    default=4,
-    help="number of retries before failing",
-    show_default=True,
+    "--ntry", default=4, help="number of retries before failing", show_default=True,
 )
 @click.option(
-    "--no-email",
+    "-r",
+    "--redo-failed",
+    help="remove any failed records before proceeding",
     is_flag=True,
-    help="don't send email",
 )
+@click.option("--no-email", is_flag=True, help="don't email me at end or on error")
 @click.argument("email")
-def ncbi_metadata(email: str, sleep: float, no_email: bool, ntry: int):
-    """Get metadata for citations."""
+def ncbi_metadata(
+    email: str, sleep: float, no_email: bool, ntry: int, redo_failed: bool
+):
+    """Get NCBI metadata for citations."""
     from datetime import datetime
     from html import escape
 
@@ -363,6 +368,10 @@ def ncbi_metadata(email: str, sleep: float, no_email: bool, ntry: int):
 
     db = initdb()
     click.secho(f"citations {db.ncitations()}", fg="green")
+    if redo_failed:
+        m = db.meta_table
+        r = db.execute(m.delete().where(m.c.status < 0), fetch=False)
+        click.secho(f"removed {r.rowcount} failed rows", fg="yellow")
     start = datetime.now()
     try:
         dometadata(db, email, sleep, ntry=ntry)
@@ -370,12 +379,14 @@ def ncbi_metadata(email: str, sleep: float, no_email: bool, ntry: int):
             sendmail(f"ncbi-metadata done in {datetime.now() - start}", email)
     except KeyboardInterrupt:
         pass
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
+        click.secho(f"download failed after {ntry} retries: {e}", fg="red", err=True)
         if not no_email:
             sendmail(
                 f"ncbi-metadata <b>failed!</b><br/><pre>{escape(str(e))}</pre>", email
             )
-        raise
+        if not isinstance(e, ConnectionError):
+            raise
 
 
 @cli.command()

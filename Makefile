@@ -9,3 +9,6 @@ pylint:
 
 install:
 	pip install --editable .
+
+version:
+	git rev-parse HEAD | cut -c1-7

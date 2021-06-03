@@ -1,5 +1,6 @@
 import time
 from io import BytesIO
+from typing import Any, Dict, Iterable
 
 import requests
 
@@ -7,20 +8,20 @@ ESEARCH2 = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
 
-def fetchncbimeta(pubmed, email, full=True, session=None):
+def fetchncbimeta(pubmed, email, session=None):
     params = dict(db="pubmed", retmode="xml", id=pubmed, email=email)
-
-    sess = session if session else requests
-    resp = sess.get(EFETCH, params=params)
+    resp = (session or requests).get(EFETCH, params=params)
 
     return resp
 
 
 # pylint: disable=too-many-locals
-def fetchncbi(pubmed, email, full=True, session=None):
+def fetchncbi(
+    pubmed: str, email: str, full=True, session=None
+) -> Iterable[Dict[str, Any]]:
     from lxml import etree as ET
 
-    resp = fetchncbimeta(pubmed, email, full=full, session=session)
+    resp = fetchncbimeta(pubmed, email, session=session)
     try:
         ipt = BytesIO(resp.content)
         tree = ET.parse(ipt)
@@ -107,7 +108,7 @@ def fetchncbi(pubmed, email, full=True, session=None):
         pass
 
 
-def ncbi_esearch(query, email, retmax=10000, session=None):
+def ncbi_esearch(query: str, email: str, retmax=10000, session=None) -> Dict[str, Any]:
 
     values = dict(
         db="pubmed", retmode="json", retmax=str(retmax), term=query, email=email
@@ -123,7 +124,9 @@ def ncbi_esearch(query, email, retmax=10000, session=None):
         fp.close()
 
 
-def ncbi_fetchdoi(doi, email, sleep=1.0, session=None):
+def ncbi_fetchdoi(
+    doi: str, email: str, sleep=1.0, session=None
+) -> Iterable[Dict[str, Any]]:
 
     r = ncbi_esearch(f"{doi}[DOI]", email, session=session)
     if "esearchresult" in r:

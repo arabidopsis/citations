@@ -2,15 +2,15 @@
 
 import smtplib
 from email.mime.text import MIMEText
-from typing import Union, List, Optional
+from typing import List, Optional, Union
 
 from . import config
 
 
 def sendmail(
-    html:str,
-    you:str,
-    replyto:Optional[Union[str,List[str]]]=None,
+    html: str,
+    you: str,
+    replyto: Optional[Union[str, List[str]]] = None,
     me=config.EMAIL,
     mailhost=config.MAIL_SERVER,
     subject="citations monitor",
