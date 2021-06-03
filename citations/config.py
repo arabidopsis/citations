@@ -1,3 +1,3 @@
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 MAIL_SERVER = "antivirus.uwa.edu.au"
 EMAIL = "citations.server@uwa.edu.au"

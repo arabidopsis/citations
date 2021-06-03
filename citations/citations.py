@@ -347,7 +347,10 @@ def tocsv(filename):
     show_default=True,
 )
 @click.option(
-    "--ntry", default=4, help="number of retries before failing", show_default=True,
+    "--ntry",
+    default=4,
+    help="number of retries before failing",
+    show_default=True,
 )
 @click.option(
     "-r",
@@ -363,6 +366,7 @@ def ncbi_metadata(
     """Get NCBI metadata for citations."""
     from datetime import datetime
     from html import escape
+    from sqlalchemy import select, func
 
     from .mailer import sendmail
 
@@ -372,6 +376,15 @@ def ncbi_metadata(
         m = db.meta_table
         r = db.execute(m.delete().where(m.c.status < 0), fetch=False)
         click.secho(f"removed {r.rowcount} failed rows", fg="yellow")
+
+    q = select([db.meta_table.c.status, func.count().label("num")]).group_by(
+        db.meta_table.c.status
+    )
+    res = {r.status: r.num for r in db.execute(q)}
+    click.secho(
+        f"done: {res.get(1,0)}, no data: {res.get(-1,0)}, failed: {res.get(-2,0)} ",
+        fg="yellow",
+    )
     start = datetime.now()
     try:
         dometadata(db, email, sleep, ntry=ntry)
