@@ -204,7 +204,7 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
             conn.execute(m.insert(), d)
 
     with tqdm(todo) as pbar:
-        for doi in pbar:
+        for idx, doi in enumerate(pbar):
             try:
                 data = list(ncbi_fetchdoi(doi, email, sleep, session=session))
                 if not data:
@@ -228,7 +228,9 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
                     if sleep:
                         time.sleep(sleep)
             except Exception as e:  # pylint: disable=broad-except
-                pbar.write(click.style(f"failed for {doi}: {e}", fg="red"))
+                pbar.write(
+                    click.style(f"failed for {doi} after {idx+1}: {e}", fg="red")
+                )
                 d = dict(doi=doi, status=-2, source="ncbi")
                 insert(d)
                 ntry -= 1
