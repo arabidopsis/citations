@@ -339,6 +339,19 @@ def tocsv(filename):
     df.to_csv(filename, index=False)  # pylint: disable=no-member
 
 
+def show_meta_status(db: Db):
+    from sqlalchemy import select, func
+
+    q = select([db.meta_table.c.status, func.count().label("num")]).group_by(
+        db.meta_table.c.status
+    )
+    res = {r.status: r.num for r in db.execute(q)}
+    click.secho(
+        f"done: {res.get(1,0)}, no data: {res.get(-1,0)}, failed: {res.get(-2,0)} ",
+        fg="blue",
+    )
+
+
 @cli.command()
 @click.option(
     "--sleep",
@@ -366,25 +379,17 @@ def ncbi_metadata(
     """Get NCBI metadata for citations."""
     from datetime import datetime
     from html import escape
-    from sqlalchemy import select, func
 
     from .mailer import sendmail
 
     db = initdb()
     click.secho(f"citations {db.ncitations()}", fg="green")
+    show_meta_status(db)
     if redo_failed:
         m = db.meta_table
         r = db.execute(m.delete().where(m.c.status < 0), fetch=False)
         click.secho(f"removed {r.rowcount} failed rows", fg="yellow")
 
-    q = select([db.meta_table.c.status, func.count().label("num")]).group_by(
-        db.meta_table.c.status
-    )
-    res = {r.status: r.num for r in db.execute(q)}
-    click.secho(
-        f"done: {res.get(1,0)}, no data: {res.get(-1,0)}, failed: {res.get(-2,0)} ",
-        fg="yellow",
-    )
     start = datetime.now()
     try:
         dometadata(db, email, sleep, ntry=ntry)
