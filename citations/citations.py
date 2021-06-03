@@ -379,6 +379,7 @@ def ncbi_metadata(
     """Get NCBI metadata for citations."""
     from datetime import datetime
     from html import escape
+    from requests.exceptions import ConnectionError as RequestsConnectionError
 
     from .mailer import sendmail
 
@@ -403,7 +404,7 @@ def ncbi_metadata(
             sendmail(
                 f"ncbi-metadata <b>failed!</b><br/><pre>{escape(str(e))}</pre>", email
             )
-        if not isinstance(e, ConnectionError):
+        if not isinstance(e, RequestsConnectionError):
             raise
 
 
