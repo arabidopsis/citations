@@ -67,7 +67,7 @@ def citation_df(doi: str) -> pd.DataFrame:
 
 
 class Db:
-    def __init__(self, engine, publications, citations_table, meta_table):
+    def __init__(self, engine, publications, citations_table, meta_table, ncbi_table):
         from sqlalchemy import bindparam, select
 
         self.pd = pd
@@ -76,6 +76,7 @@ class Db:
         self.publications = publications
         self.citations = citations_table
         self.meta_table = meta_table
+        self.ncbi_table = ncbi_table
         self.select = select
         self.update = (
             publications.update()  # pylint: disable=no-value-for-parameter
@@ -173,12 +174,21 @@ def initdb() -> Db:
         Column("data", JSON),
     )
 
+    Ncbi = Table(
+        "ncbi_meta",
+        meta,
+        Column("pubmed", String(12), primary_key=True),
+        Column("status", Integer, nullable=False, server_default=text("0")),
+        Column("data", JSON),
+    )
+
     engine = create_engine("sqlite:///./citations.db")
     Publications.create(bind=engine, checkfirst=True)
     Citations.create(bind=engine, checkfirst=True)
     Meta.create(bind=engine, checkfirst=True)
+    Ncbi.create(bind=engine, checkfirst=True)
 
-    return Db(engine, Publications, Citations, Meta)
+    return Db(engine, Publications, Citations, Meta, Ncbi)
 
 
 def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
@@ -211,6 +221,7 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
                     d = dict(doi=doi, status=-1, source="ncbi")
                     insert(d)
                     continue
+                data = data[0]
                 for d in data:
                     has_affiliation = any(
                         bool(a.get("affiliation")) for a in d["authors"]
@@ -231,7 +242,55 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
                 pbar.write(
                     click.style(f"failed for {doi} after {idx+1}: {e}", fg="red")
                 )
-                d = dict(doi=doi, status=-2, source="ncbi")
+                d = dict(doi=doi, status=-2, data=null)
+                insert(d)
+                ntry -= 1
+                if ntry <= 0:
+                    raise
+
+
+def doncbi(db: Db, email: str, sleep=1.0, ntry=4):
+    import requests
+    from sqlalchemy import null, select, and_
+    from tqdm import tqdm
+
+    from .ncbi import fetchncbi
+
+    p = db.publications
+    n = db.ncbi_table
+    j = p.outerjoin(n, p.c.pubmed == n.c.pubmed)
+    q = select([p.c.pubmed]).select_from(j).where(n.c.pubmed == null())
+    q = q.where(and_(p.c.pubmed != null(), p.c.pubmed != ""))
+
+    with db.engine.connect() as con:
+        todo = {r.pubmed for r in con.execute(q)}
+    click.secho(f"todo {len(todo)}", fg="blue")
+
+    session = requests.Session()
+
+    def insert(d):
+        with db.engine.connect() as conn:
+            conn.execute(n.insert(), d)
+
+    with tqdm(todo) as pbar:
+        for idx, pmid in enumerate(pbar):
+            try:
+                data = list(fetchncbi(pmid, email, full=True, session=session))
+                if not data:
+                    d = dict(pubmed=pmid, status=-1, data=None)
+                    insert(d)
+                    continue
+                data = data[0]
+
+                insert(dict(pubmed=pmid, status=1, data=data))
+
+                if sleep:
+                    time.sleep(sleep)
+            except Exception as e:  # pylint: disable=broad-except
+                pbar.write(
+                    click.style(f"failed for {pmid} after {idx+1}: {e}", fg="red")
+                )
+                d = dict(pubmed=pmid, status=-2, data=None)
                 insert(d)
                 ntry -= 1
                 if ntry <= 0:
@@ -430,3 +489,55 @@ def dump(table, filename):
     db = initdb()
     df = pd.read_sql_table(table, con=db.engine)
     df.to_csv(filename, index=False)  # pylint: disable=no-member
+
+
+@cli.command()
+@click.option(
+    "--sleep",
+    default=1.0,
+    help="time to sleep in seconds between requests",
+    show_default=True,
+)
+@click.option(
+    "--ntry",
+    default=4,
+    help="number of retries before failing",
+    show_default=True,
+)
+@click.option(
+    "-r",
+    "--redo-failed",
+    help="remove any failed records before proceeding",
+    is_flag=True,
+)
+@click.option("--no-email", is_flag=True, help="don't email me at end or on error")
+@click.argument("email")
+def ncbi_json(email: str, sleep: float, no_email: bool, ntry: int, redo_failed: bool):
+    """Get NCBI metadata for publications."""
+    from datetime import datetime
+    from html import escape
+    from requests.exceptions import ConnectionError as RequestsConnectionError
+
+    from .mailer import sendmail
+
+    db = initdb()
+    click.secho(f"publications {db.npubs()}", fg="green")
+
+    if redo_failed:
+        m = db.ncbi_table
+        r = db.execute(m.delete().where(m.c.status < 0), fetch=False)
+        click.secho(f"removed {r.rowcount} failed rows", fg="yellow")
+
+    start = datetime.now()
+    try:
+        doncbi(db, email, sleep, ntry=ntry)
+        if not no_email:
+            sendmail(f"ncbi-json done in {datetime.now() - start}", email)
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:  # pylint: disable=broad-except
+        click.secho(f"download failed after {ntry} retries: {e}", fg="red", err=True)
+        if not no_email:
+            sendmail(f"ncbi-json <b>failed!</b><br/><pre>{escape(str(e))}</pre>", email)
+        if not isinstance(e, RequestsConnectionError):
+            raise
