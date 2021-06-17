@@ -261,6 +261,8 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4, headers=None):
                 ntry -= 1
                 if ntry <= 0:
                     raise TooManyRetries(idx + 1) from e
+                if sleep:
+                    time.sleep(sleep * 2)
 
 
 def doncbi(db: Db, email: str, sleep=1.0, ntry=4, headers=None):
@@ -311,7 +313,8 @@ def doncbi(db: Db, email: str, sleep=1.0, ntry=4, headers=None):
                 ntry -= 1
                 if ntry <= 0:
                     raise TooManyRetries(idx + 1) from e
-
+                if sleep:
+                    time.sleep(sleep * 2)
 
 def docitations(db: Db, sleep=1.0):
     from requests.exceptions import HTTPError

@@ -1,4 +1,4 @@
-VERSION = "0.1.9"
+VERSION = "0.1.10"
 MAIL_SERVER = "antivirus.uwa.edu.au"
 EMAIL = "citations.server@uwa.edu.au"
 # pylint: disable=line-too-long
