@@ -4,6 +4,7 @@ from typing import Any, Dict, Iterable
 
 import click
 import pandas as pd
+from .config import HEADERS
 
 from .cli import cli
 
@@ -191,7 +192,18 @@ def initdb() -> Db:
     return Db(engine, Publications, Citations, Meta, Ncbi)
 
 
-def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
+class TooManyRetries(Exception):
+    def __init__(self, done):
+        super().__init__(f"Too many retries done: {done}")
+
+    @property
+    def message(self):
+        if self.args:
+            return self.args[0]
+        return "Too many retries"
+
+
+def dometadata(db: Db, email: str, sleep=1.0, ntry=4, headers=None):
     import requests
     from sqlalchemy import null, select
     from tqdm import tqdm
@@ -216,7 +228,9 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
     with tqdm(todo) as pbar:
         for idx, doi in enumerate(pbar):
             try:
-                data = list(ncbi_fetchdoi(doi, email, sleep, session=session))
+                data = list(
+                    ncbi_fetchdoi(doi, email, sleep, session=session, headers=headers)
+                )
                 if not data:
                     d = dict(doi=doi, status=-1, source="ncbi")
                     insert(d)
@@ -246,10 +260,10 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4):
                 insert(d)
                 ntry -= 1
                 if ntry <= 0:
-                    raise
+                    raise TooManyRetries(idx + 1) from e
 
 
-def doncbi(db: Db, email: str, sleep=1.0, ntry=4):
+def doncbi(db: Db, email: str, sleep=1.0, ntry=4, headers=None):
     import requests
     from sqlalchemy import null, select, and_
     from tqdm import tqdm
@@ -275,7 +289,9 @@ def doncbi(db: Db, email: str, sleep=1.0, ntry=4):
     with tqdm(todo) as pbar:
         for idx, pmid in enumerate(pbar):
             try:
-                data = list(fetchncbi(pmid, email, full=True, session=session))
+                data = list(
+                    fetchncbi(pmid, email, full=True, session=session, headers=headers)
+                )
                 if not data:
                     d = dict(pubmed=pmid, status=-1, data=None)
                     insert(d)
@@ -294,7 +310,7 @@ def doncbi(db: Db, email: str, sleep=1.0, ntry=4):
                 insert(d)
                 ntry -= 1
                 if ntry <= 0:
-                    raise
+                    raise TooManyRetries(idx + 1) from e
 
 
 def docitations(db: Db, sleep=1.0):
@@ -432,10 +448,16 @@ def show_meta_status(db: Db):
     help="remove any failed records before proceeding",
     is_flag=True,
 )
+@click.option("--with-headers", is_flag=True, help="add headers to http request")
 @click.option("--no-email", is_flag=True, help="don't email me at end or on error")
 @click.argument("email")
 def ncbi_metadata(
-    email: str, sleep: float, no_email: bool, ntry: int, redo_failed: bool
+    email: str,
+    sleep: float,
+    no_email: bool,
+    ntry: int,
+    redo_failed: bool,
+    with_headers: bool,
 ):
     """Get NCBI metadata for citations."""
     from datetime import datetime
@@ -454,7 +476,9 @@ def ncbi_metadata(
 
     start = datetime.now()
     try:
-        dometadata(db, email, sleep, ntry=ntry)
+        dometadata(
+            db, email, sleep, ntry=ntry, headers=HEADERS if with_headers else None
+        )
         if not no_email:
             sendmail(f"ncbi-metadata done in {datetime.now() - start}", email)
     except KeyboardInterrupt:
@@ -510,9 +534,17 @@ def dump(table, filename):
     help="remove any failed records before proceeding",
     is_flag=True,
 )
+@click.option("--with-headers", is_flag=True, help="add headers to http request")
 @click.option("--no-email", is_flag=True, help="don't email me at end or on error")
 @click.argument("email")
-def ncbi_json(email: str, sleep: float, no_email: bool, ntry: int, redo_failed: bool):
+def ncbi_json(
+    email: str,
+    sleep: float,
+    no_email: bool,
+    ntry: int,
+    redo_failed: bool,
+    with_headers: bool,
+):
     """Get NCBI metadata for publications."""
     from datetime import datetime
     from html import escape
@@ -530,7 +562,7 @@ def ncbi_json(email: str, sleep: float, no_email: bool, ntry: int, redo_failed: 
 
     start = datetime.now()
     try:
-        doncbi(db, email, sleep, ntry=ntry)
+        doncbi(db, email, sleep, ntry=ntry, headers=HEADERS if with_headers else None)
         if not no_email:
             sendmail(f"ncbi-json done in {datetime.now() - start}", email)
     except KeyboardInterrupt:

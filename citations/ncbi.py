@@ -4,24 +4,25 @@ from typing import Any, Dict, Iterable
 
 import requests
 
+
 ESEARCH2 = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 
 
-def fetchncbimeta(pubmed, email, session=None):
+def fetchncbimeta(pubmed, email, session=None, headers=None):
     params = dict(db="pubmed", retmode="xml", id=pubmed, email=email)
-    resp = (session or requests).get(EFETCH, params=params)
+    resp = (session or requests).get(EFETCH, params=params, headers=headers)
 
     return resp
 
 
 # pylint: disable=too-many-locals
 def fetchncbi(
-    pubmed: str, email: str, full=True, session=None
+    pubmed: str, email: str, full=True, session=None, headers=None
 ) -> Iterable[Dict[str, Any]]:
     from lxml import etree as ET
 
-    resp = fetchncbimeta(pubmed, email, session=session)
+    resp = fetchncbimeta(pubmed, email, session=session, headers=headers)
     try:
         ipt = BytesIO(resp.content)
         tree = ET.parse(ipt)
@@ -108,15 +109,17 @@ def fetchncbi(
         pass
 
 
-def ncbi_esearch(query: str, email: str, retmax=10000, session=None) -> Dict[str, Any]:
+def ncbi_esearch(
+    query: str, email: str, retmax=10000, session=None, headers:dict=None
+) -> Dict[str, Any]:
 
     values = dict(
         db="pubmed", retmode="json", retmax=str(retmax), term=query, email=email
     )
     if len(query) > 300:
-        fp = (session or requests).post(ESEARCH2, data=values)
+        fp = (session or requests).post(ESEARCH2, data=values, headers=headers)
     else:
-        fp = (session or requests).get(ESEARCH2, params=values)
+        fp = (session or requests).get(ESEARCH2, params=values, headers=headers)
     try:
         return fp.json()
 
@@ -125,12 +128,14 @@ def ncbi_esearch(query: str, email: str, retmax=10000, session=None) -> Dict[str
 
 
 def ncbi_fetchdoi(
-    doi: str, email: str, sleep=1.0, session=None
+    doi: str, email: str, sleep=1.0, session=None, headers=None
 ) -> Iterable[Dict[str, Any]]:
 
-    r = ncbi_esearch(f"{doi}[DOI]", email, session=session)
+    r = ncbi_esearch(f"{doi}[DOI]", email, session=session, headers=headers)
     if "esearchresult" in r:
         for pmid in r["esearchresult"]["idlist"]:
             if sleep:
                 time.sleep(sleep)
-            yield from fetchncbi(pmid, email, full=True, session=session)
+            yield from fetchncbi(
+                pmid, email, full=True, session=session, headers=headers
+            )
