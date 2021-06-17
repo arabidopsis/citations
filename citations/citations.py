@@ -448,7 +448,7 @@ def show_meta_status(db: Db):
     help="remove any failed records before proceeding",
     is_flag=True,
 )
-@click.option("--with-headers", is_flag=True, help="add headers to http request")
+@click.option("-h", "--with-headers", is_flag=True, help="add headers to http request")
 @click.option("--no-email", is_flag=True, help="don't email me at end or on error")
 @click.argument("email")
 def ncbi_metadata(
@@ -534,7 +534,7 @@ def dump(table, filename):
     help="remove any failed records before proceeding",
     is_flag=True,
 )
-@click.option("--with-headers", is_flag=True, help="add headers to http request")
+@click.option("-h", "--with-headers", is_flag=True, help="add headers to http request")
 @click.option("--no-email", is_flag=True, help="don't email me at end or on error")
 @click.argument("email")
 def ncbi_json(
