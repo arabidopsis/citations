@@ -72,8 +72,8 @@ def fetchncbi(
             volume = journal.findtext("JournalIssue/Volume")
             issue = journal.findtext("JournalIssue/Issue")
             abstract = article.findtext("Abstract/AbstractText")
-            authors = article.findall("AuthorList/Author")
             pages = article.findtext("Pagination/MedlinePgn")
+            authors = article.findall("AuthorList/Author")
 
             # elementtree tries to encode everything as ascii
             # or if that fails it leaves the string alone
@@ -92,19 +92,28 @@ def fetchncbi(
                         affiliation=affiliation[0],
                     )
 
-            alist = [
-                {
+            def toadict(a):
+                return {
                     "lastname": a.findtext("LastName"),
                     "forename": a.findtext("ForeName"),
                     "initials": a.findtext("Initials"),
-                    # "affiliation": list(aff(a)),
+                    "affiliations": list(aff(a)),
                     "affiliation": findaffiliation(a),
                     "orcid": " ".join(
                         [o.text for o in a.xpath('.//Identifier[@Source="ORCID"]')]
                     ),
                 }
-                for a in authors
+
+            alist = [
+                toadict(a) for a in authors if not list(a.xpath(".//CollectiveName"))
             ]
+
+            alist.extend(
+                [
+                    toadict(a)
+                    for a in pm_article.xpath(".//InvestigatorList/Investigator")
+                ]
+            )
             # author = alist[0]
             yield {
                 "pubmed": pmid,
