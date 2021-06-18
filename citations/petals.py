@@ -1,13 +1,12 @@
 import click
 
 
-def update_from_petals(db):
+def update_from_petals(db, url="mongodb://127.0.0.1:27018/personnel"):
     import pandas as pd
     from pymongo import MongoClient
     from sqlalchemy import select
 
-    click.secho("remember to ssh into croppal", fg="yellow", bold=True)
-    c = MongoClient("mongodb://127.0.0.1:27018/personnel")
+    c = MongoClient(url)
     mdb = c.get_default_database()
     all_pubs = list(
         mdb.publications.find({}, projection=["title", "doi", "pubmed", "year"])

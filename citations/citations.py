@@ -642,7 +642,17 @@ def add_publications(email: str, sleep: float, with_headers: bool, pubmeds: List
 
 
 @cli.command()
-def update_from_petals():
+@click.option(
+    "--url",
+    help="connection string",
+    default="mongodb://127.0.0.1:27018/personnel",
+    show_default=True,
+)
+def update_from_petals(url):
+    """update publications table from petals."""
     from .petals import update_from_petals as u
 
-    u(initdb())
+    if url == "mongodb://127.0.0.1:27018/personnel":
+        click.secho("remember to ssh into croppal", fg="yellow", bold=True)
+
+    u(initdb(), url)
