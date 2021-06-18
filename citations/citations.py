@@ -1,6 +1,6 @@
 import re
 import time
-from typing import Any, Dict, Iterable
+from typing import Any, Dict, Iterable, List
 
 import click
 import pandas as pd
@@ -265,6 +265,47 @@ def dometadata(db: Db, email: str, sleep=1.0, ntry=4, headers=None):
                     time.sleep(sleep * 2)
 
 
+def addpublications(db: Db, pubmeds: List[str], email: str, sleep=1.0, headers=None):
+    from sqlalchemy import select
+    from .ncbi import fetchncbi
+    from tqdm import tqdm
+    import requests
+
+    p = db.publications
+    q = select([p.c.pubmed]).where(p.c.pubmed.in_(pubmeds))
+
+    done = {r.pubmed for r in db.execute(q)}
+
+    todo = set(pubmeds) - done
+    click.secho(f"{len(todo)} todo", fg="green")
+    if len(todo) == 0:
+        return
+
+    def insert(d):
+        with db.engine.connect() as conn:
+            conn.execute(p.insert(), d)
+
+    session = requests.Session()
+    with tqdm(todo) as pbar:
+        for _idx, pmid in enumerate(pbar):
+            data = list(
+                fetchncbi(pmid, email, full=True, session=session, headers=headers)
+            )
+            if not data:
+                pbar.write(f"no data for {pmid}")
+                continue
+            data = data[0]
+            assert data["pubmed"] == pmid, data
+            d = {
+                k: v for k, v in data.items() if k in ["doi", "pubmed", "title", "year"]
+            }
+            d["ncitations"] = -1
+            insert(d)
+
+            if sleep:
+                time.sleep(sleep)
+
+
 def doncbi(db: Db, email: str, sleep=1.0, ntry=4, headers=None):
     import requests
     from sqlalchemy import null, select, and_
@@ -315,6 +356,7 @@ def doncbi(db: Db, email: str, sleep=1.0, ntry=4, headers=None):
                     raise TooManyRetries(idx + 1) from e
                 if sleep:
                     time.sleep(sleep * 2)
+
 
 def docitations(db: Db, sleep=1.0):
     from requests.exceptions import HTTPError
@@ -576,3 +618,31 @@ def ncbi_json(
             sendmail(f"ncbi-json <b>failed!</b><br/><pre>{escape(str(e))}</pre>", email)
         if not isinstance(e, RequestsConnectionError):
             raise
+
+
+@cli.command()
+@click.option(
+    "--sleep",
+    default=1.0,
+    help="time to sleep in seconds between requests",
+    show_default=True,
+)
+@click.option("-h", "--with-headers", is_flag=True, help="add headers to http request")
+@click.argument("email")
+@click.argument("pubmeds", nargs=-1)
+def add_publications(email: str, sleep: float, with_headers: bool, pubmeds: List[str]):
+    """Add PMIDs to publications table."""
+    if len(pubmeds) == 0:
+        return
+
+    db = initdb()
+    addpublications(
+        db, pubmeds, email, sleep, headers=HEADERS if with_headers else None
+    )
+
+
+@cli.command()
+def update_from_petals():
+    from .petals import update_from_petals as u
+
+    u(initdb())

@@ -80,12 +80,28 @@ def fetchncbi(
             def findaffiliation(node):
                 return node.findtext("AffiliationInfo/Affiliation") or ""
 
+            def aff(node):
+                # affiliation = n.findtext('AffiliationInfo/Affiliation')
+                for ai in node.xpath(".//AffiliationInfo"):
+                    grid = [a.text for a in ai.xpath('.//Identifier[@Source="GRID"]')]
+                    isni = [a.text for a in ai.xpath('.//Identifier[@Source="ISNI"]')]
+                    affiliation = [a.text for a in ai.xpath(".//Affiliation")]
+                    yield dict(
+                        grid=grid[0] if grid else None,
+                        isni=isni[0] if isni else None,
+                        affiliation=affiliation[0],
+                    )
+
             alist = [
                 {
                     "lastname": a.findtext("LastName"),
                     "forename": a.findtext("ForeName"),
                     "initials": a.findtext("Initials"),
+                    # "affiliation": list(aff(a)),
                     "affiliation": findaffiliation(a),
+                    "orcid": " ".join(
+                        [o.text for o in a.xpath('.//Identifier[@Source="ORCID"]')]
+                    ),
                 }
                 for a in authors
             ]
@@ -110,7 +126,7 @@ def fetchncbi(
 
 
 def ncbi_esearch(
-    query: str, email: str, retmax=10000, session=None, headers:dict=None
+    query: str, email: str, retmax=10000, session=None, headers: dict = None
 ) -> Dict[str, Any]:
 
     values = dict(
